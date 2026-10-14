@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+tmp/
+build/
+dist/
+*.pyc
+*.log
+output/
+/*.zip
+/*.lnk
+/*.exe
+/1787973816266955/
+/使用及开发指南-MSU2系列可编程USB屏幕_20241102224357.pdf
+.coverage
+htmlcov/
