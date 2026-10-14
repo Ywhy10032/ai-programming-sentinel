@@ -17,6 +17,8 @@ from sentinel import __version__
 
 
 def main():
+    from build_observer import build
+    build()
     assets=ROOT/'assets'
     assets.mkdir(exist_ok=True)
     Application.tray_image('success').save(assets/'sentinel.ico',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64)])
@@ -25,7 +27,8 @@ def main():
 from pathlib import Path
 root=Path(SPECPATH)
 a=Analysis([str(root/'main.py')],pathex=[str(root)],binaries=[],
-           datas=[(str(root/'web'),'web'),(str(root/'assets'),'assets')],hiddenimports=['pystray._win32'],
+           datas=[(str(root/'web'),'web'),(str(root/'assets'),'assets'),
+                  (str(root/'tmp/desktop-observer/observer.exe'),'.')],hiddenimports=['pystray._win32'],
            hookspath=[],hooksconfig={},runtime_hooks=[],
            excludes=['tkinter','pytest','PyInstaller'],noarchive=False)
 pyz=PYZ(a.pure)
@@ -52,7 +55,7 @@ coll=COLLECT(gui,cli,a.binaries,a.datas,strip=False,upx=False,name='AI编程哨�
     shutil.copy2(ROOT/'CHANGELOG.md',package/'更新记录.txt')
     licenses=package/'licenses'
     licenses.mkdir(exist_ok=True)
-    for name in ['Pillow','pyserial','pystray','six','PyInstaller']:
+    for name in ['Pillow','pyserial','pystray','six','PyInstaller','zstandard']:
         distribution=importlib.metadata.distribution(name)
         for file in distribution.files or []:
             if file.name.upper().startswith(('LICENSE','COPYING','COPYRIGHT')):

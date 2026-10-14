@@ -9,6 +9,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from .brands import brand_icon, provider_for
+from .providers import provider_name
 
 PALETTE = {
     "running": (91, 173, 255), "waiting": (255, 199, 83),
@@ -57,7 +58,7 @@ class Renderer:
         self.line((0, 0, 0, 80), accent, 2)
         if task:
             provider = provider_for(task)
-            heading = ("Codex · " if provider == "codex" else "Claude · " if provider == "claude" else "") + task["title"]
+            heading = (provider_name(provider) + " · " if provider else "") + task["title"]
             self.text(8, 5, self.fit(heading, 132, 10), 10, MUTED)
             self.dot(149, 11, 2, accent)
             self.icon(status, 21, 41, accent, phase, reduced, task, now)

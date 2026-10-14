@@ -14,6 +14,7 @@ from pathlib import Path
 from . import __version__
 from .config import Config, resource_path
 from .runner import run_command
+from .providers import PROVIDERS
 
 
 class Client:
@@ -71,6 +72,9 @@ def hook_event(payload: dict, provider="codex"):
     if provider == "claude":
         from .claude import hook_event as claude_event
         return claude_event(payload)
+    if provider != 'codex':
+        from .integrations import hook_event as client_event
+        return client_event(payload, provider)
     kind = payload.get("hook_event_name",payload.get("type", ""))
     mapping = {"agent-turn-complete":"success","UserPromptSubmit":"running","Stop":"success",
                "Interrupt":"cancelled","approval-requested":"waiting","request-user-input":"waiting",
@@ -92,6 +96,8 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8",errors="replace")
     if sys.stderr and hasattr(sys.stderr,"reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8",errors="replace")
+    if sys.stdin and hasattr(sys.stdin, 'reconfigure'):
+        sys.stdin.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description="AI 编程哨兵 · USB 小屏任务提醒")
     parser.add_argument("--version",action="version",version=__version__)
     sub = parser.add_subparsers(dest="command")
@@ -114,7 +120,7 @@ def main(argv=None):
     emit.add_argument("--location",default="")
     emit.add_argument("--errors",type=int)
     emit.add_argument("--files",type=int)
-    emit.add_argument("--provider",choices=["codex", "claude"],default="")
+    emit.add_argument("--provider",choices=list(PROVIDERS),default="")
     run = sub.add_parser("run",help="执行编译/测试命令，保留原始退出码")
     run.add_argument("--title",default="编译任务")
     run.add_argument("--mode",choices=["build","test","ai"],default="build")
@@ -122,9 +128,9 @@ def main(argv=None):
     run.add_argument("args",nargs=argparse.REMAINDER)
     hook = sub.add_parser("hook",help="接收 Codex / 外部工具 JSON 生命周期事件")
     hook.add_argument("payload",nargs="?")
-    hook.add_argument("--provider",choices=["codex", "claude"],default="codex")
+    hook.add_argument("--provider",choices=list(PROVIDERS),default="codex")
     integrate = sub.add_parser("integrate",help="接入 Claude Code 官方回调，保留原有配置")
-    integrate.add_argument("tool", choices=["claude"])
+    integrate.add_argument("tool", choices=['claude', 'zcode', 'cursor', 'windsurf'])
     integrate.add_argument("--remove",action="store_true",help="仅移除哨兵回调")
     startup = sub.add_parser("startup",help="设置或查询当前用户的开机自启")
     startup.add_argument("action",choices=["on", "off", "status"],nargs="?",default="status")
@@ -173,18 +179,28 @@ def main(argv=None):
                         print(f"哨兵提醒暂不可用：{exc}",file=sys.stderr)
             return run_command(args,emit_safely,client.config.directory/"logs",options.title,options.mode,options.cwd)
         elif options.command=="hook":
-            payload = json.loads(options.payload if options.payload is not None else sys.stdin.read(2*1024*1024))
-            if not isinstance(payload,dict):
-                raise ValueError("回调需要 JSON 对象")
-            event = hook_event(payload,options.provider)
-            if event:
-                client.emit(event)
-            # Stop 等官方 hook 要求标准输出为 JSON；不干预原任务执行。
-            if "hook_event_name" in payload:
-                print_json({})
+            payload = {}
+            try:
+                payload = json.loads(options.payload if options.payload is not None else sys.stdin.read(2*1024*1024))
+                if not isinstance(payload,dict):
+                    raise ValueError('回调需要 JSON 对象')
+                event = hook_event(payload,options.provider)
+                if event:
+                    # 回调不启动第二个后台；提醒故障不能阻挡原客户端。
+                    client.request('/api/event', event)
+            except (OSError, ValueError, TypeError):
+                if sys.stderr:
+                    print('哨兵提醒暂不可用，原任务继续。', file=sys.stderr)
+            # 只确认用户提交继续；不订阅 Cursor 工具前权限 Hook，不批准任何命令。
+            print_json({'continue': True} if options.provider == 'cursor' and
+                       isinstance(payload, dict) and payload.get('hook_event_name') == 'beforeSubmitPrompt' else {})
         elif options.command=="integrate":
-            from .claude import configure_integration
-            print_json(configure_integration(client.config,remove=options.remove))
+            if options.tool == 'claude':
+                from .claude import configure_integration
+                print_json(configure_integration(client.config,remove=options.remove))
+            else:
+                from .integrations import configure_integration
+                print_json(configure_integration(options.tool,remove=options.remove))
         elif options.command=="startup":
             client.ensure()
             if options.action == "status":

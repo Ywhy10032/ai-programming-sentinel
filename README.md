@@ -1,10 +1,10 @@
 # AI 编程哨兵
 
-让 0.96 英寸 MSU2 MINI USB 屏幕提醒真实的 Codex、Claude Code、编译和测试状态。
+让 0.96 英寸 MSU2 MINI USB 屏幕提醒 Codex、Claude Code、DeepSeek Harness、ZCode 等客户端的可确认状态，以及编译和测试结果。
 
 [下载 Windows 便携版](https://github.com/Ywhy10032/ai-programming-sentinel/releases/latest) · [更新记录](CHANGELOG.md) · [第三方来源](THIRD_PARTY_NOTICES.md)
 
-无需安装 Python，无需更换屏幕固件。当前版本 **1.2.1**，已在 Windows 10/11、160 × 80 的 MSU2 MINI 上验证。
+无需安装 Python，无需更换屏幕固件。当前版本 **1.3.0**。USB 驱动已在本机 Windows、160 × 80 的 MSU2 MINI 上验证；新增客户端的实测范围见下文。
 
 ![Codex、Claude 与大号空闲时钟的效果示意](docs/images/屏幕预览.png)
 
@@ -51,6 +51,52 @@ Codex 与 Claude Code 运行时，左侧显示各自的应用图标，图标外�
 
 可以在“更多偏好”填入项目目录，限制只监听该项目及子目录。
 监控历史只在本机保存简短状态；不会复制整段对话或推理内容。
+
+## 多客户端接入
+
+1.3.0 增加桌面观察层、DeepSeek Harness 会话事件监听，以及 ZCode、Cursor、Windsurf / Devin Desktop 官方回调接入。控制面板的“AI 客户端接入”分别显示实际发现情况、控件可读性和回调状态。
+
+| 客户端 | 接入方式 | 能力与限制 |
+| --- | --- | --- |
+| Codex | 只读任务日志 | 原有开始、结束、失败、真实操作请求提醒 |
+| Claude Code | 官方 HTTP Hooks | 原有开始、结束、失败、权限和问题提醒 |
+| DeepSeek Harness | 本机 .dsh 会话日志 | 现行版本 2–4、普通 JSONL 和完整 Zstandard 帧；按 turn/end 区分完成、取消、失败和被阻挡 |
+| ZCode | 用户级 Hooks | 开始、工具活动、权限/问题等待；Stop 是准备结束，显示“准备结束”，不冒充最终成功 |
+| Cursor | 用户级 Hooks | 开始、工具后活动、明确 completed / aborted / error 结束；不接管工具权限前置回调 |
+| Windsurf / Devin Desktop | 用户级 Hooks | 用户提交与整轮 Cascade 回答结束 |
+| ChatGPT、Claude 普通聊天 | 只读 Windows 界面观察 | 仅识别可见生成控件、允许/拒绝控件对、明确完成或失败状态；不覆盖所有隐藏会话 |
+| Cherry Studio、LM Studio、Jan、Trae、千问、Kimi、豆包、Gemini、Poe、Perplexity、Grok | 预置界面适配候选 | 按进程名发现，只使用严格控件信号；不同版本是否暴露控件须实测，预置规则不等于已经验证兼容 |
+
+桌面观察不点击、不输入、不截屏，不导出对话正文、提示词、窗口标题或登录信息。应用最小化、控件不可读、窗口关闭或会话切换都不当作任务完成。只有停止按钮消失时显示灰色“状态不可见”，30 秒后回到其他任务或时钟；不会发出成功音。界面任务的计时从首次稳定观察开始，属于观察时间。客户端图标从本机程序提取；没有图标时显示名称缩写，不伪造商标。
+
+DeepSeek 默认查找 `%USERPROFILE%\.dsh\sessions` 与 `sessions-desktop`，尊重 `DSH_HOME`；其他保存位置可在“更多偏好”中填写实际会话日志根目录。只读现行结构，不迁移、不解压写回、不修复或修改原日志。旧格式 0/1 与未来格式明确跳过。压缩帧必须完整并通过校验后才能用于提醒。
+
+ZCode、Cursor、Windsurf 在控制面板点击“接入回调”，或运行：
+
+```powershell
+.\sentinel.exe integrate zcode
+.\sentinel.exe integrate cursor
+.\sentinel.exe integrate windsurf
+```
+
+接入仅增删哨兵自己的条目，保留模型、权限与其他 Hook，修改前自动备份。ZCode 使用官方 `~/.zcode/cli/config.json` 用户级配置，新会话生效；不向项目级配置写入无效 Hook。移除时恢复原有启用状态：
+
+```powershell
+.\sentinel.exe integrate zcode --remove
+```
+
+其他客户端可以使用同一真实事件接口，provider 来自控制面板目录。例如由原客户端在任务确实开始和完成时分别发送：
+
+```powershell
+.\sentinel.exe emit running --provider kimi --id kimi:session:turn --title "当前任务"
+.\sentinel.exe emit success --provider kimi --id kimi:session:turn --title "当前任务"
+```
+
+HTTP 接入为 `/api/event` 或 `/api/hooks/<provider>`，需要本机 `X-Sentinel-Token`；始终只监听 127.0.0.1，不为兼容客户端开放公网。回调故障时返回不阻挡原任务的结果，不批准命令、不拒绝工具、不注入额外指令。
+
+新增客户端当前验证范围：官方事件格式与独立回归测试、观察器编译及本机运行。开发机尚未运行 DeepSeek Harness / ZCode / Cursor / Windsurf，不能将模拟事件测试当作这些客户端的实机验证。Claude 最小化时的不可读降级已检查；普通聊天生成与多会话切换仍需对应客户端实测。
+
+官方依据：[DeepSeek 会话事件](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/session/src/types.ts)、[DeepSeek 持久化格式](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-persistence-jsonl/README.md)、[ZCode Hooks](https://zcode.z.ai/cn/docs/hooks)、[Cursor Hooks](https://cursor.com/docs/hooks)、[Windsurf / Devin Desktop Hooks](https://docs.devin.ai/desktop/cascade/hooks)。
 
 ## 接入 Claude Code
 
@@ -126,7 +172,7 @@ HTTP 回调只发往本机 `127.0.0.1`，返回空 JSON，不批准权限、不�
 若需要使用官方 `notify` 完成入口，可在自己的 Codex 配置中设置如下命令，替换为实际便携包路径：
 
 ```toml
-notify = ["C:\\Tools\\AI编程哨兵-1.2.1\\sentinel.exe", "hook"]
+notify = ["C:\\Tools\\AI编程哨兵-1.3.0\\sentinel.exe", "hook"]
 ```
 
 官方 `notify` 当前报告 `agent-turn-complete`，不能用它推断任务开始或等待操作。
@@ -189,6 +235,7 @@ Windows 10/11，Python 3.13 已测试。代码和资料文本采用 UTF-8。
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe tools\build_observer.py
 .\.venv\Scripts\python.exe main.py serve
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe tools\build.py

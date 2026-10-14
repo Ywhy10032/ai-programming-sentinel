@@ -16,7 +16,7 @@ def server(tmp_path):
     config=Config(tmp_path)
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
-    config.update({"http_port":port,"sound":False,"codex_watch":False})
+    config.update({"http_port":port,"sound":False,"codex_watch":False,"desktop_watch":False,"deepseek_watch":False})
     app=Application(config,preview_only=True)
     thread=threading.Thread(target=lambda:app.serve(browser=False,tray=False))
     thread.start()
@@ -139,11 +139,29 @@ def test_claude_integration_api_is_reversible_and_preserves_other_hooks(server, 
 
 
 def test_brand_icon_routes_are_available_without_arbitrary_file_access(server):
-    for provider in ('codex', 'claude'):
+    for provider in ('codex', 'claude', 'deepseek', 'zcode', 'cherry', 'chatgpt'):
         with request(server, f'/api/icons/{provider}.png') as response:
             assert response.read().startswith(b'\x89PNG')
     with pytest.raises(urllib.error.HTTPError):
         request(server, '/api/icons/config.json')
+
+
+def test_desktop_directory_is_honest_and_does_not_expose_private_controls(server):
+    with request(server,'/api/status',headers=token(server)) as response:
+        state=json.load(response)
+    assert not state['desktop']['enabled']
+    assert len(state['desktop']['clients']) == 18
+    assert all(not c['detected'] for c in state['desktop']['clients'])
+    assert all('window_title' not in c and 'controls' not in c for c in state['desktop']['clients'])
+
+
+def test_new_hook_endpoint_uses_token_and_does_not_return_permission_decision(server):
+    payload={'hook_event_name':'PermissionRequest','session_id':'s','prompt':'private'}
+    with pytest.raises(urllib.error.HTTPError):request(server,'/api/hooks/zcode',payload)
+    with request(server,'/api/hooks/zcode',payload,token(server)) as response:
+        assert json.load(response)=={}
+    assert server.store.tasks['zcode:s:current'].status=='waiting'
+    assert 'private' not in json.dumps(server.store.snapshot())
 
 
 def test_second_backend_cannot_take_over_occupied_port(server, tmp_path):

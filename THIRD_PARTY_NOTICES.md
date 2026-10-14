@@ -44,3 +44,7 @@ Windows 中文字体由本机系统加载，本项目不重新分发微软雅黑
 - Claude：Claude Windows 应用的 Claude 星形标志。
 
 图标仅用于识别对应任务来源；标志和相关商标属于 OpenAI 与 Anthropic，图标不受本项目 USB 协议的 MIT 许可覆盖。
+
+新增 Zstandard 解码使用 python-zstandard，许可随便携包附带。
+只读桌面观察器使用 Windows 自带的 .NET Framework UI Automation 系统库，源码由本项目独立编写。
+其他客户端图标仅在本机提取并保存在用户数据目录，不随源码或发布包分发；名称缩写为本项目绘制的识别占位符。

@@ -2,7 +2,8 @@
 from pathlib import Path
 root=Path(SPECPATH)
 a=Analysis([str(root/'main.py')],pathex=[str(root)],binaries=[],
-           datas=[(str(root/'web'),'web'),(str(root/'assets'),'assets')],hiddenimports=['pystray._win32'],
+           datas=[(str(root/'web'),'web'),(str(root/'assets'),'assets'),
+                  (str(root/'tmp/desktop-observer/observer.exe'),'.')],hiddenimports=['pystray._win32'],
            hookspath=[],hooksconfig={},runtime_hooks=[],
            excludes=['tkinter','pytest','PyInstaller'],noarchive=False)
 pyz=PYZ(a.pure)

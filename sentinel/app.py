@@ -25,6 +25,11 @@ from .render import PALETTE, Renderer
 from .state import StateStore
 from .startup import StartupManager
 from .watch import CodexWatcher
+from .desktop import DesktopWatcher
+from .deepseek import DeepSeekWatcher
+from .providers import PROVIDERS
+from .brands import brand_icon
+from .integrations import HOOK_EVENTS, configure_integration as configure_client, hook_event as client_hook_event
 from .claude import (HOOK_PATH, ClaudeInterruptWatcher, configure_integration,
                      hook_event as claude_hook_event, integration_status)
 
@@ -43,6 +48,8 @@ class Application:
         self.stop = threading.Event()
         self.store = StateStore(self.config.directory,self.notify,on_event=self.real_event_received)
         self.claude_interrupts = ClaudeInterruptWatcher(self.store, self.config, self.stop)
+        self.desktop = DesktopWatcher(self.store, self.config, self.stop)
+        self.deepseek = DeepSeekWatcher(self.store, self.config, self.stop)
         self.preview_only = preview_only
         self.preview = b""
         self.preview_lock = threading.Lock()
@@ -192,13 +199,26 @@ class Application:
 
     def status(self):
         data = self.store.snapshot(self.config.get("completion_hold"))
+        desktop = self.desktop.snapshot()
+        claude = integration_status(self.config)
+        for client in desktop['clients']:
+            if client['provider'] == 'codex' and data['watcher'].get('enabled'):
+                client['message'] = data['watcher']['message']
+            elif client['provider'] == 'claude':
+                client['native_message'] = claude['message']
+                if claude['enabled']:
+                    client['message'] = claude['message'] + '；普通聊天按界面可读性监听'
+            elif client['provider'] == 'deepseek' and self.deepseek.cursors:
+                client['message'] = self.deepseek.message
         if time.monotonic()-self.ports_checked>10:
             try:self.ports_cache=Screen.available()
             except OSError:self.ports_cache=[]
             self.ports_checked=time.monotonic()
         data.update(settings=self.config.public(),version=self.version,demo=self.demo_started is not None,
                     data_dir=str(self.config.directory),startup=self.startup_enabled(),muted_until=self.muted_until,
-                    ports=self.ports_cache, claude=integration_status(self.config), startup_state=self.startup.state())
+                    ports=self.ports_cache, claude=claude, startup_state=self.startup.state(),
+                    desktop=desktop, deepseek={'enabled':self.config.get('deepseek_watch'),
+                                                              'message':self.deepseek.message})
         return data
 
     def claude_event(self, payload):
@@ -265,6 +285,7 @@ class Application:
 
     def shutdown(self):
         self.stop.set()
+        self.desktop.close()
         if self.tray:
             self.tray.stop()
         if self.server:
@@ -321,8 +342,12 @@ class Application:
                     with app.preview_lock:
                         data = app.preview
                     return self.send(data,"image/png")
-                if path in ("/api/icons/codex.png", "/api/icons/claude.png"):
-                    return self.send(resource_path("assets/" + path.rsplit("/", 1)[-1]).read_bytes(), "image/png")
+                if path.startswith('/api/icons/') and path.endswith('.png'):
+                    provider = path.rsplit('/', 1)[-1][:-4]
+                    if provider in PROVIDERS:
+                        output = io.BytesIO()
+                        brand_icon(provider, 64).save(output, format='PNG')
+                        return self.send(output.getvalue(), 'image/png')
                 return self.send({"error":"不存在"},code=404)
 
             def do_POST(self):
@@ -334,7 +359,7 @@ class Application:
                 try:
                     path = urllib.parse.urlsplit(self.path).path
                     length = int(self.headers.get("Content-Length","0"))
-                    limit = 2*1024*1024 if path == HOOK_PATH else 65536
+                    limit = 2*1024*1024 if path.startswith('/api/hooks/') else 65536
                     if not 0<=length<=limit:
                         return self.send({"error":"请求过大"},code=413)
                     self.connection.settimeout(3)
@@ -346,10 +371,20 @@ class Application:
                         raise ValueError("请求需要 JSON 对象")
                     if path == HOOK_PATH:
                         return self.send(app.claude_event(payload))
+                    if path.startswith('/api/hooks/'):
+                        provider = path.rsplit('/', 1)[-1]
+                        event = client_hook_event(payload, provider)
+                        if event:
+                            app.event(event)
+                        return self.send({})
                     if path == "/api/integrations/claude":
                         if not isinstance(payload.get("remove", False), bool):
                             raise ValueError("移除选项需要布尔值")
                         return self.send(configure_integration(app.config, remove=payload.get("remove", False)))
+                    if path.startswith('/api/integrations/') and path.rsplit('/', 1)[-1] in HOOK_EVENTS:
+                        if type(payload.get('remove', False)) is not bool:
+                            raise ValueError('移除选项需要布尔值')
+                        return self.send(configure_client(path.rsplit('/', 1)[-1], remove=payload.get('remove', False)))
                     if path == "/api/event":
                         return self.send(app.event(payload))
                     if path == "/api/settings":
@@ -400,7 +435,8 @@ class Application:
                 return connection,address
         self.server = Server(("127.0.0.1",self.config.get("http_port")),Handler)
         for target,name in [(self.display_loop,"屏幕渲染"),(CodexWatcher(self.store,self.config,self.stop).run,"Codex 监听"),
-                            (self.claude_interrupts.run, "Claude 中断监听")]:
+                            (self.claude_interrupts.run, "Claude 中断监听"),
+                            (self.deepseek.run, 'DeepSeek 会话监听'), (self.desktop.run, '桌面状态观察')]:
             thread = threading.Thread(target=target,name=name,daemon=True)
             thread.start()
             self.threads.append(thread)

@@ -17,7 +17,7 @@ ROOT_FILES = ('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 
               'requirements.txt', 'requirements-dev.txt', 'requirements-lock.txt', 'pytest.ini',
               '.gitignore', '.gitattributes', 'sentinel.spec', 'sentinel.cmd', '启动哨兵.cmd')
 DIRECTORIES = ('sentinel', 'tests', 'tools', 'web', 'assets', 'docs', '.github')
-TEXT_SUFFIXES = ('.py', '.md', '.txt', '.html', '.js', '.json', '.yml', '.yaml', '.ini', '.spec', '.cmd')
+TEXT_SUFFIXES = ('.py', '.cs', '.md', '.txt', '.html', '.js', '.json', '.yml', '.yaml', '.ini', '.spec', '.cmd')
 SECRET_PATTERN = re.compile(r'(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|'
                             r'sk-(?:proj-)?[A-Za-z0-9_-]{24,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)')
 

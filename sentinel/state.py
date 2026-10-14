@@ -9,6 +9,7 @@ from collections import deque
 from pathlib import Path
 
 from .brands import provider_for
+from .providers import PROVIDERS
 
 STATUSES = {"running", "waiting", "success", "error", "cancelled", "unknown"}
 LABELS = {"running": "正在生成", "waiting": "需要操作", "success": "任务完成",
@@ -46,6 +47,10 @@ class Task:
         data["label"] = LABELS[self.status]
         if self.notification_only and self.status == "success":
             data["label"] = "已处理"
+        if self.source.endswith('界面监听'):
+            data['label'] = {'unknown': '状态不可见', 'success': '回答已完成'}.get(self.status, data['label'])
+        if self.status == 'unknown' and self.provider == 'zcode':
+            data['label'] = '准备结束'
         if self.mode in ["build", "test"]:
             subject = "测试" if self.mode == "test" else "编译"
             data["label"] = {"running": f"正在{subject}", "success": f"{subject}通过",
@@ -111,8 +116,8 @@ class StateStore:
         for key in ["errors", "files"]:
             if key in raw and (type(raw[key]) is not int or not 0 <= raw[key] <= 100000):
                 raise ValueError(f"{key} 必须是非负整数")
-        if raw.get("provider", "") not in ("", "codex", "claude"):
-            raise ValueError("工具来源应为 codex 或 claude")
+        if raw.get("provider", "") not in ('', *PROVIDERS):
+            raise ValueError("未知工具来源，请使用客户端目录中的标识")
         if type(raw.get("notification_only", False)) is not bool:
             raise ValueError("独立提醒标记需要布尔值")
         now = self.clock()
@@ -181,7 +186,9 @@ class StateStore:
             visible = [t for t in self.tasks.values() if not t.acknowledged and (
                 t.status in ["running", "waiting", "unknown", "error"] or
                 t.finished_at is not None and now - t.finished_at < hold)
-                and not (t.notification_only and t.finished_at is not None)]
+                and not (t.notification_only and t.finished_at is not None)
+                and not (t.status == 'unknown' and now-t.updated_at >= 30 and
+                         (t.source.endswith('界面监听') or t.provider in ('zcode', 'deepseek')))]
             priority = {"waiting": 6, "error": 5, "running": 3, "unknown": 2, "success": 1, "cancelled": 0}
             # 新完成任务显示几秒，再回到后台其他运行任务。
             def score(t):

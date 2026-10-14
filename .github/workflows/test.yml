@@ -22,3 +22,5 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: 执行软件测试
         run: python -m pytest -q
+      - name: 编译只读桌面观察器
+        run: python tools/build_observer.py

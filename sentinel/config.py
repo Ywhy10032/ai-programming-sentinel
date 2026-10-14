@@ -24,6 +24,7 @@ DEFAULTS = {
     "rotation": 0, "sound": True, "quiet": False, "reduced_motion": False,
     "codex_watch": True, "codex_scope": "", "completion_hold": 18,
     "clock_24h": True, "claude_watch": True,
+    "desktop_watch": True, "deepseek_watch": True, "deepseek_root": "",
 }
 
 
@@ -53,7 +54,7 @@ class Config:
         for key, value in raw.items():
             if key not in DEFAULTS:
                 continue
-            if key in ["sound", "quiet", "reduced_motion", "codex_watch", "claude_watch", "clock_24h"]:
+            if key in ["sound", "quiet", "reduced_motion", "codex_watch", "claude_watch", "clock_24h", "desktop_watch", "deepseek_watch"]:
                 if not isinstance(value, bool):
                     raise ValueError(f"{key} 必须是布尔值")
             elif key == "rotation":
