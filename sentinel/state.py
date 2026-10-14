@@ -51,6 +51,8 @@ class Task:
             data['label'] = {'unknown': '状态不可见', 'success': '回答已完成'}.get(self.status, data['label'])
         if self.status == 'unknown' and self.provider == 'zcode':
             data['label'] = '准备结束'
+        if self.status == 'unknown' and self.provider == 'antigravity':
+            data['label'] = '等待结束'
         if self.mode in ["build", "test"]:
             subject = "测试" if self.mode == "test" else "编译"
             data["label"] = {"running": f"正在{subject}", "success": f"{subject}通过",
@@ -188,7 +190,7 @@ class StateStore:
                 t.finished_at is not None and now - t.finished_at < hold)
                 and not (t.notification_only and t.finished_at is not None)
                 and not (t.status == 'unknown' and now-t.updated_at >= 30 and
-                         (t.source.endswith('界面监听') or t.provider in ('zcode', 'deepseek')))]
+                         (t.source.endswith('界面监听') or t.provider in ('zcode', 'deepseek', 'antigravity')))]
             priority = {"waiting": 6, "error": 5, "running": 3, "unknown": 2, "success": 1, "cancelled": 0}
             # 新完成任务显示几秒，再回到后台其他运行任务。
             def score(t):

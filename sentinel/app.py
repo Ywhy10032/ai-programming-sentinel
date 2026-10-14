@@ -376,6 +376,9 @@ class Application:
                         event = client_hook_event(payload, provider)
                         if event:
                             app.event(event)
+                        if provider == 'antigravity':
+                            from .antigravity import hook_output
+                            return self.send(hook_output(payload.get('hook_event_name', payload.get('hookEventName'))))
                         return self.send({})
                     if path == "/api/integrations/claude":
                         if not isinstance(payload.get("remove", False), bool):

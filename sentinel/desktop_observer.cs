@@ -44,6 +44,7 @@ public class DesktopObserver {
             case "poe": return "poe";
             case "perplexity": return "perplexity";
             case "grok": return "grok";
+            case "antigravity": case "antigravity ide": return "antigravity";
             default: return null;
         }
     }

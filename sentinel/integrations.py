@@ -22,12 +22,14 @@ HOOK_EVENTS = {
     # Cursor 的工具前置事件要求权限结果，旁观者不订阅这些事件。
     'cursor': ('beforeSubmitPrompt', 'postToolUse', 'postToolUseFailure', 'stop'),
     'windsurf': ('pre_user_prompt', 'post_cascade_response'),
+    'antigravity': ('PreInvocation', 'PreToolUse', 'PostToolUse', 'Stop'),
 }
 
 
 def integration_path(provider):
     return {'zcode': Path.home()/'.zcode/cli/config.json',
             'cursor': Path.home()/'.cursor/hooks.json',
+            'antigravity': Path.home()/'.gemini/config/hooks.json',
             'windsurf': Path.home()/'.codeium/windsurf/hooks.json'}[provider]
 
 
@@ -64,6 +66,9 @@ def our_hook(hook, provider):
 
 
 def integration_status(provider, path=None):
+    if provider == 'antigravity':
+        from .antigravity import integration_status as status
+        return status(path)
     path = path or integration_path(provider)
     try:
         raw = read_config(path)
@@ -84,6 +89,9 @@ def integration_status(provider, path=None):
 
 
 def configure_integration(provider, *, remove=False, path=None):
+    if provider == 'antigravity':
+        from .antigravity import configure_integration as configure
+        return configure(remove=remove, path=path)
     if provider not in HOOK_EVENTS:
         raise ValueError('此客户端不提供自动回调安装')
     path = path or integration_path(provider)
@@ -170,10 +178,14 @@ def configure_integration(provider, *, remove=False, path=None):
 def hook_event(payload, provider, now=None):
     if provider not in PROVIDERS or not isinstance(payload, dict):
         raise ValueError('未知客户端或事件格式无效')
-    kind = payload.get('hook_event_name', payload.get('agent_action_name', payload.get('type')))
-    if payload.get('agent_id') or payload.get('is_subagent') or payload.get('subagent_id'):
+    if provider == 'antigravity':
+        from .antigravity import hook_event as parse, other_stop_hooks
+        return parse(payload, may_continue=other_stop_hooks(payload) if payload.get('hook_event_name', payload.get('hookEventName')) == 'Stop' else False)
+    kind = payload.get('hook_event_name', payload.get('hookEventName', payload.get('agent_action_name', payload.get('type'))))
+    if (payload.get('agent_id') or payload.get('agentId') or payload.get('is_subagent') or
+            payload.get('isSubagent') or payload.get('subagent_id') or payload.get('subagentId')):
         return None
-    session = clean_text(payload.get('session_id', payload.get('conversation_id', payload.get('trajectory_id'))), 80)
+    session = clean_text(payload.get('session_id', payload.get('sessionId', payload.get('conversation_id', payload.get('trajectory_id')))), 80)
     if not session:
         return None
     mapping = {'UserPromptSubmit': 'running', 'beforeSubmitPrompt': 'running', 'pre_user_prompt': 'running',
@@ -192,7 +204,7 @@ def hook_event(payload, provider, now=None):
         status = mapping.get(kind)
     if not status:
         return None
-    if kind == 'PreToolUse' and payload.get('tool_name') in ('AskUserQuestion', 'ExitPlanMode'):
+    if kind == 'PreToolUse' and payload.get('tool_name', payload.get('toolName')) in ('AskUserQuestion', 'ExitPlanMode'):
         status = 'waiting'
     turn = clean_text(payload.get('generation_id', payload.get('turn_id', 'current')), 60)
     name = provider_name(provider)

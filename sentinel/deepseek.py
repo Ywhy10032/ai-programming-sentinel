@@ -36,6 +36,7 @@ class SessionCursor:
     initial: bool = True
     signature: tuple = ()
     last_event: dict | None = None
+    questions: dict = field(default_factory=dict)
 
 
 class DeepSeekWatcher:
@@ -48,6 +49,37 @@ class DeepSeekWatcher:
         self.last_scan = 0
         self._roots_key = None
         self.message = '尚未发现 DeepSeek Harness 会话目录'
+
+    def question_event(self, cursor, call_id, status, *, restore=False):
+        question = cursor.questions.get(call_id)
+        if not question:
+            return
+        event = dict(question, status=status, notification_only=True,
+                     event_id=question['event_id']+':'+status)
+        if status != 'waiting':
+            event['detail'] = '这条操作请求已结束'
+        if not cursor.initial or restore or event['id'] in self.store.tasks:
+            self.store.event(event, notify=not restore and status == 'waiting',
+                             record_history=not cursor.initial and not restore)
+        if status != 'waiting':
+            cursor.questions.pop(call_id, None)
+
+    @staticmethod
+    def question_pending(message):
+        content = message.get('content', [])
+        for part in content if isinstance(content, list) else []:
+            if not isinstance(part, dict) or part.get('type') != 'text':
+                continue
+            value = part.get('text', '')
+            if not isinstance(value, str) or len(value) > 65536:
+                continue
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict) and parsed.get('pending') is True:
+                return True
+        return False
 
     def roots_now(self):
         custom = self.config.get('deepseek_root')
@@ -113,6 +145,34 @@ class DeepSeekWatcher:
             observed = self.clock()
         if not 0 < observed <= self.clock()+5:
             observed = self.clock()
+        if kind == 'tool/call' and data.get('name') == 'ask_user_question':
+            call_id = clean_text(data.get('callId'), 80)
+            try:
+                arguments = json.loads(data.get('arguments', '{}'))
+            except (TypeError, ValueError):
+                arguments = {}
+            questions = arguments.get('questions') if isinstance(arguments, dict) else None
+            if call_id and isinstance(questions, list) and questions and all(
+                    isinstance(q, dict) and isinstance(q.get('id'), str) and q['id'] and
+                    isinstance(q.get('question'), str) and q['question'] for q in questions):
+                cursor.questions[call_id] = {'id': f'deepseek:{cursor.session}:input:{call_id}',
+                    'provider': 'deepseek', 'title': cursor.title, 'source': 'DeepSeek 操作请求',
+                    'detail': '请在 DeepSeek Harness 中回答', 'started_at': observed,
+                    'event_id': f'deepseek:{cursor.session}:question:{seq}'}
+                self.question_event(cursor, call_id, 'waiting')
+            return None
+        if kind == 'tool/result':
+            message = data.get('message', {})
+            if isinstance(message, dict):
+                call_id = clean_text(message.get('toolCallId'), 80)
+                if call_id in cursor.questions and not self.question_pending(message):
+                    self.question_event(cursor, call_id, 'success')
+            return None
+        if kind == 'user/message':
+            source = data.get('source', {})
+            if isinstance(source, dict) and source.get('kind') == 'user-question-reply' and source.get('outcome') == 'answered':
+                self.question_event(cursor, clean_text(source.get('callId'), 80), 'success')
+            return None
         if kind == 'turn/start' and type(data.get('turn')) is int:
             cursor.turn = data['turn']; cursor.started = observed; cursor.active = True
             status = 'running'
@@ -123,6 +183,9 @@ class DeepSeekWatcher:
             status = {'completed': 'success', 'aborted': 'cancelled', 'interrupted': 'cancelled',
                       'error': 'error', 'blocked': 'waiting', 'max-tokens': 'error', 'forked': 'cancelled'}.get(reason.get('kind'))
             cursor.active = False
+            if status == 'cancelled':
+                for call_id in list(cursor.questions):
+                    self.question_event(cursor, call_id, 'success')
         elif kind == 'step/start' and cursor.active:
             status = 'running'
         # approval/asked 是整个决策链的审计，可能自动批准，不能据此猜“需要用户操作”。
@@ -194,6 +257,19 @@ class DeepSeekWatcher:
             # 启动只恢复近期仍在运行的任务，绝不重播历史完成、错误或声音。
             if cursor.last_event and cursor.last_event['status'] == 'running' and self.clock()-stat.st_mtime < 120:
                 self.store.event(cursor.last_event, notify=False, record_history=False)
+            for call_id in list(cursor.questions):
+                self.question_event(cursor, call_id, 'waiting', restore=True)
+
+    def clear_active(self):
+        with self.store.lock:
+            removed = False
+            for key in list(self.store.tasks):
+                if key.startswith('deepseek:') and not self.store.tasks[key].finished_at:
+                    del self.store.tasks[key]
+                    removed = True
+            if removed:
+                self.store._save_pending()
+                self.store.revision += 1
 
     def run(self):
         while not self.stop.is_set():
@@ -201,18 +277,11 @@ class DeepSeekWatcher:
             if self._roots_key is not None and self._roots_key != roots_key:
                 self.cursors.clear()
                 self.last_scan = 0
-                with self.store.lock:
-                    for key in list(self.store.tasks):
-                        if key.startswith('deepseek:') and not self.store.tasks[key].finished_at:
-                            del self.store.tasks[key]
-                    self.store.revision += 1
+                self.clear_active()
             self._roots_key = roots_key
             if not self.config.get('deepseek_watch'):
                 self.message = 'DeepSeek Harness 监听已暂停'
-                with self.store.lock:
-                    for key in list(self.store.tasks):
-                        if key.startswith('deepseek:') and not self.store.tasks[key].finished_at:
-                            del self.store.tasks[key]
+                self.clear_active()
                 self.cursors.clear(); self.stop.wait(1)
                 continue
             try:

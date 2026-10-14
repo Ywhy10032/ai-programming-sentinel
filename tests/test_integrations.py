@@ -88,3 +88,20 @@ def test_hook_failure_keeps_original_client_running(tmp_path, monkeypatch, capsy
 
 def test_missing_session_is_not_combined_with_other_users():
     assert hook_event({'hook_event_name':'PermissionRequest'},'zcode') is None
+
+
+def test_zcode_camelcase_wire_aliases_and_subagent_exclusion():
+    payload={'hookEventName':'PreToolUse','sessionId':'s','toolName':'AskUserQuestion','toolInput':{'text':'PRIVATE'}}
+    event=hook_event(payload,'zcode')
+    assert event['status']=='waiting' and event['id']=='zcode:s:current'
+    assert 'PRIVATE' not in json.dumps(event)
+    assert hook_event(dict(payload,agentId='child'),'zcode') is None
+
+
+def test_zcode_stop_never_requests_continuation_even_when_service_fails(tmp_path, monkeypatch, capsys):
+    from sentinel.cli import main, Client
+    monkeypatch.setenv('AI_SENTINEL_HOME', str(tmp_path))
+    def unavailable(*args):raise ConnectionError('offline')
+    monkeypatch.setattr(Client, 'request', unavailable)
+    assert main(['hook','--provider','zcode',json.dumps({'hook_event_name':'Stop','session_id':'s'})])==0
+    assert json.loads(capsys.readouterr().out)=={}

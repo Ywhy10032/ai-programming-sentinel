@@ -21,6 +21,17 @@ def event(kind,seq,**data):
 def line(record):return (json.dumps(record,ensure_ascii=False)+'\n').encode('utf-8')
 
 
+def test_pausing_removes_persisted_waiting_but_preserves_other_clients(tmp_path):
+    store=StateStore(tmp_path/'state')
+    watcher=DeepSeekWatcher(store,Config(tmp_path/'config'),threading.Event())
+    store.event({'id':'deepseek:s:input:q','provider':'deepseek','status':'waiting','notification_only':True})
+    store.event({'id':'codex:s:input:q','provider':'codex','status':'waiting','notification_only':True})
+    watcher.clear_active()
+    restored=StateStore(tmp_path/'state')
+    assert 'deepseek:s:input:q' not in restored.tasks
+    assert 'codex:s:input:q' in restored.tasks
+
+
 @pytest.fixture
 def harness(tmp_path):
     store=StateStore(tmp_path/'state',clock=lambda:150)
@@ -108,3 +119,58 @@ def test_discovery_selects_latest_generation_only(harness):
     os.utime(path,(150,150));os.utime(path.with_name('session.v2.jsonl'),(150,150))
     w.discover()
     assert list(w.cursors)==[path]
+
+
+def question(seq=1, call_id='q'):
+    return event('tool/call',seq,turn=1,step=0,callId=call_id,name='ask_user_question',
+                 arguments=json.dumps({'questions':[{'id':'choice','question':'PRIVATE QUESTION'}]}))
+
+
+def result(seq=2, call_id='q', value=None):
+    return event('tool/result',seq,turn=1,step=0,message={'role':'tool','toolCallId':call_id,
+                 'content':[{'type':'text','text':json.dumps(value or {'answers':[{'id':'choice','selected':['PRIVATE ANSWER']}]})}]})
+
+
+def test_blocking_question_and_matching_tool_result(harness):
+    w,s,path=harness;c=SessionCursor(path,initial=False)
+    w.event(c,header());w.event(c,event('turn/start',0,turn=1));w.event(c,question())
+    assert s.snapshot()['task']['status']=='waiting'
+    assert s.snapshot()['active_count']==1
+    w.event(c,result())
+    assert s.tasks['deepseek:s:input:q'].status=='success'
+    assert s.snapshot()['task']['status']=='running'
+    assert 'PRIVATE' not in json.dumps(s.snapshot())
+
+
+def test_timed_question_remains_after_pending_result_and_parent_completion(harness):
+    w,s,path=harness;c=SessionCursor(path,initial=False)
+    w.event(c,header());w.event(c,event('turn/start',0,turn=1));w.event(c,question())
+    w.event(c,result(value={'pending':True,'callId':'q'}))
+    w.event(c,event('turn/end',3,turn=1,reason={'kind':'completed'}))
+    assert s.snapshot()['task']['status']=='waiting'
+    w.event(c,event('user/message',4,source={'kind':'user-question-reply','callId':'other','outcome':'answered'}))
+    assert s.snapshot()['task']['status']=='waiting'
+    w.event(c,event('user/message',5,source={'kind':'user-question-reply','callId':'q','outcome':'answered'},content='PRIVATE ANSWER'))
+    assert s.tasks['deepseek:s:input:q'].status=='success'
+    assert 'PRIVATE' not in json.dumps(s.snapshot())
+
+
+def test_bootstrap_restores_only_unanswered_questions_without_sound(harness):
+    w,s,path=harness;path.parent.mkdir(parents=True)
+    notifications=[];s.on_notify=lambda task:notifications.append(task.status)
+    path.write_bytes(line(header())+line(event('turn/start',0,turn=1))+line(question())+
+                     line(result(value={'pending':True,'callId':'q'}))+line(event('turn/end',3,turn=1,reason={'kind':'completed'})))
+    c=SessionCursor(path);w.poll(c)
+    assert s.snapshot()['task']['status']=='waiting' and not notifications
+    with path.open('ab') as f:
+        f.write(line(event('user/message',4,source={'kind':'user-question-reply','callId':'q','outcome':'answered'})))
+    w.poll(c)
+    assert s.snapshot()['task'] is None and not notifications
+
+
+def test_task_cancel_withdraws_question_without_faking_task_success(harness):
+    w,s,path=harness;c=SessionCursor(path,initial=False)
+    w.event(c,header());w.event(c,event('turn/start',0,turn=1));w.event(c,question())
+    w.event(c,event('turn/end',2,turn=1,reason={'kind':'aborted'}))
+    assert s.tasks['deepseek:s:input:q'].status=='success'
+    assert s.tasks['deepseek:s:1'].status=='cancelled'

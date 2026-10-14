@@ -18,6 +18,7 @@ PROVIDERS = {
     'poe': ('Poe', 'POE', '#b2a3f8', '界面'),
     'perplexity': ('Perplexity', 'PX', '#70c5cc', '界面'),
     'grok': ('Grok', 'GK', '#dddfe7', '界面'),
+    'antigravity': ('Google Antigravity', 'AG', '#9dadfa', '官方回调 / 界面'),
 }
 
 

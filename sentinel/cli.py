@@ -129,8 +129,9 @@ def main(argv=None):
     hook = sub.add_parser("hook",help="接收 Codex / 外部工具 JSON 生命周期事件")
     hook.add_argument("payload",nargs="?")
     hook.add_argument("--provider",choices=list(PROVIDERS),default="codex")
+    hook.add_argument('--event', choices=['PreInvocation','PreToolUse','PostToolUse','Stop'])
     integrate = sub.add_parser("integrate",help="接入 Claude Code 官方回调，保留原有配置")
-    integrate.add_argument("tool", choices=['claude', 'zcode', 'cursor', 'windsurf'])
+    integrate.add_argument("tool", choices=['claude', 'zcode', 'cursor', 'windsurf', 'antigravity'])
     integrate.add_argument("--remove",action="store_true",help="仅移除哨兵回调")
     startup = sub.add_parser("startup",help="设置或查询当前用户的开机自启")
     startup.add_argument("action",choices=["on", "off", "status"],nargs="?",default="status")
@@ -184,6 +185,8 @@ def main(argv=None):
                 payload = json.loads(options.payload if options.payload is not None else sys.stdin.read(2*1024*1024))
                 if not isinstance(payload,dict):
                     raise ValueError('回调需要 JSON 对象')
+                if options.provider == 'antigravity' and options.event:
+                    payload = dict(payload, hook_event_name=options.event)
                 event = hook_event(payload,options.provider)
                 if event:
                     # 回调不启动第二个后台；提醒故障不能阻挡原客户端。
@@ -192,7 +195,11 @@ def main(argv=None):
                 if sys.stderr:
                     print('哨兵提醒暂不可用，原任务继续。', file=sys.stderr)
             # 只确认用户提交继续；不订阅 Cursor 工具前权限 Hook，不批准任何命令。
-            print_json({'continue': True} if options.provider == 'cursor' and
+            if options.provider == 'antigravity':
+                from .antigravity import hook_output
+                print_json(hook_output(options.event or (payload.get('hook_event_name') if isinstance(payload, dict) else None)))
+            else:
+                print_json({'continue': True} if options.provider == 'cursor' and
                        isinstance(payload, dict) and payload.get('hook_event_name') == 'beforeSubmitPrompt' else {})
         elif options.command=="integrate":
             if options.tool == 'claude':

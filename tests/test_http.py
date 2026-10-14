@@ -150,7 +150,8 @@ def test_desktop_directory_is_honest_and_does_not_expose_private_controls(server
     with request(server,'/api/status',headers=token(server)) as response:
         state=json.load(response)
     assert not state['desktop']['enabled']
-    assert len(state['desktop']['clients']) == 18
+    from sentinel.providers import PROVIDERS
+    assert len(state['desktop']['clients']) == len(PROVIDERS)
     assert all(not c['detected'] for c in state['desktop']['clients'])
     assert all('window_title' not in c and 'controls' not in c for c in state['desktop']['clients'])
 
