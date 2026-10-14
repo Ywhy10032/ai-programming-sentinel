@@ -13,7 +13,8 @@ from .diagnostics import summarize,ERROR_LINE,LOCATION
 
 
 def decode_output(data: bytes) -> str:
-    for encoding in ["utf-8", locale.getpreferredencoding(False), "gb18030"]:
+    # cp1252 等单字节编码几乎不会报错，必须放在 GBK/GB18030 之后，避免吞掉中文。
+    for encoding in dict.fromkeys(["utf-8", "gb18030", locale.getpreferredencoding(False), "cp1252"]):
         try:
             return data.decode(encoding)
         except (UnicodeError, LookupError):
@@ -38,8 +39,12 @@ def run_command(argv: list[str], emit, directory: Path, title="编译任务", mo
     interrupted = False
     try:
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        environment = os.environ.copy()
+        # Python 子程序在英文 Windows 默认无法打印中文；只设置缺失的 Python 输出偏好。
+        environment.setdefault("PYTHONIOENCODING", "utf-8")
+        environment.setdefault("PYTHONUTF8", "1")
         process = subprocess.Popen(argv,cwd=cwd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                                   creationflags=flags,start_new_session=os.name != "nt")
+                                   creationflags=flags,start_new_session=os.name != "nt",env=environment)
         # 读取固定大小字节块，避免无换行输出阻塞或占用无限内存。
         with log.open("w",encoding="utf-8") as stream:
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")

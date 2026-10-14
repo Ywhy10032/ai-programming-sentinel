@@ -37,6 +37,21 @@ def test_decoder_gbk():
     assert decode_output("中文".encode("gbk"))=="中文"
 
 
+def test_chinese_decoder_is_independent_of_english_windows_locale(monkeypatch):
+    monkeypatch.setattr('sentinel.runner.locale.getpreferredencoding', lambda _=False: 'cp1252')
+    assert decode_output('中文错误'.encode('gbk')) == '中文错误'
+    assert decode_output(b'caf\xe9') == 'café'
+
+
+def test_python_child_can_print_unicode_without_inheriting_legacy_console_encoding(tmp_path, monkeypatch):
+    monkeypatch.delenv('PYTHONIOENCODING', raising=False)
+    monkeypatch.delenv('PYTHONUTF8', raising=False)
+    events = []
+    code = run_command([sys.executable, '-c', "print('🟢 完成')"], events.append, tmp_path)
+    assert code == 0
+    assert next(tmp_path.glob('*.log')).read_text(encoding='utf-8').strip() == '🟢 完成'
+
+
 def test_long_output_preserves_first_error_without_inventing_total(tmp_path):
     events=[]
     script="import sys;print('main.c:128: error: value undeclared');sys.stdout.write('normal output\\n'*400000);sys.exit(1)"

@@ -4,7 +4,7 @@
 
 [下载 Windows 便携版](https://github.com/Ywhy10032/ai-programming-sentinel/releases/latest) · [更新记录](CHANGELOG.md) · [第三方来源](THIRD_PARTY_NOTICES.md)
 
-无需安装 Python，无需更换屏幕固件。当前版本 **1.2.0**，已在 Windows 10/11、160 × 80 的 MSU2 MINI 上验证。
+无需安装 Python，无需更换屏幕固件。当前版本 **1.2.1**，已在 Windows 10/11、160 × 80 的 MSU2 MINI 上验证。
 
 ![Codex、Claude 与大号空闲时钟的效果示意](docs/images/屏幕预览.png)
 
@@ -126,7 +126,7 @@ HTTP 回调只发往本机 `127.0.0.1`，返回空 JSON，不批准权限、不�
 若需要使用官方 `notify` 完成入口，可在自己的 Codex 配置中设置如下命令，替换为实际便携包路径：
 
 ```toml
-notify = ["C:\\Tools\\AI编程哨兵-1.2.0\\sentinel.exe", "hook"]
+notify = ["C:\\Tools\\AI编程哨兵-1.2.1\\sentinel.exe", "hook"]
 ```
 
 官方 `notify` 当前报告 `agent-turn-complete`，不能用它推断任务开始或等待操作。
