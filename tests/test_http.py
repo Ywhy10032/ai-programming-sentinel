@@ -52,6 +52,28 @@ def test_status_needs_token_and_does_not_expose_token(server):
     assert status['device']['connected'] is False
 
 
+def test_rotated_disk_token_restores_client_discovery_and_revokes_old_token(server):
+    from sentinel.cli import Client
+    old=server.config.get('token')
+    raw=json.loads(server.config.path.read_text(encoding='utf-8'))
+    raw['token']='rotated_'+'a'*40
+    server.config.path.write_text(json.dumps(raw),encoding='utf-8')
+    client=Client(Config(server.config.directory))
+    assert client.running()['version']==server.version
+    with pytest.raises(urllib.error.HTTPError) as error:
+        request(server,'/api/status',headers={'X-Sentinel-Token':old})
+    assert error.value.code==403
+
+
+def test_wrong_token_never_means_backend_is_not_running(server,monkeypatch):
+    from sentinel.cli import Client
+    client=Client(Config(server.config.directory))
+    client.config.values['token']='wrong_'+'b'*40
+    monkeypatch.setattr(client.config,'refresh_token',lambda:False)
+    with pytest.raises(ValueError,match='访问验证未通过'):
+        client.running()
+
+
 def test_csrf_and_dns_rebinding_rejected(server):
     headers=token(server)|{'Origin':'https://malicious.example'}
     with pytest.raises(urllib.error.HTTPError) as e:request(server,'/api/demo',{},headers)

@@ -308,6 +308,9 @@ class Application:
 
             def authenticated(self):
                 token = self.headers.get("X-Sentinel-Token", "")
+                if not token.isascii():
+                    return False
+                app.config.refresh_token()
                 return secrets.compare_digest(token,app.config.get("token"))
 
             def send(self, data, content="application/json; charset=utf-8", code=200):

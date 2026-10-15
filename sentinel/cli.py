@@ -23,6 +23,7 @@ class Client:
         self.base = f"http://127.0.0.1:{self.config.get('http_port')}"
 
     def request(self, path, payload=None):
+        self.config.refresh_token()
         data = None if payload is None else json.dumps(payload,ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.base+path,data=data,
             headers={"X-Sentinel-Token":self.config.get("token"),"Content-Type":"application/json"})
@@ -32,6 +33,10 @@ class Client:
     def running(self):
         try:
             return self.request("/api/status")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 403:
+                raise ValueError('本机端口已有服务，但访问验证未通过；请从托盘退出旧哨兵后再启动，避免重复占用端口') from None
+            return None
         except (OSError,ValueError):
             return None
 
@@ -141,13 +146,27 @@ def main(argv=None):
     client = Client()
     try:
         if options.command in [None,"serve"]:
-            if client.running():
-                if not getattr(options,"no_browser",False):
-                    webbrowser.open(client.base)
-                return 0
-            from .app import Application
-            app = Application(client.config,preview_only=getattr(options,"preview_only",False))
-            app.serve(browser=not getattr(options,"no_browser",False),tray=not getattr(options,"no_tray",False))
+            from .instance import InstanceGuard
+            with InstanceGuard(client.config.directory) as guard:
+                if not guard.acquired:
+                    # 第一个进程可能还在初始化托盘与监听端口，等待它就绪。
+                    deadline = time.monotonic()+8
+                    while time.monotonic() < deadline:
+                        if client.running():
+                            if not getattr(options,'no_browser',False):
+                                webbrowser.open(client.base)
+                            return 0
+                        time.sleep(.15)
+                    if sys.stderr:
+                        print('哨兵已在启动，请稍候。',file=sys.stderr)
+                    return 0
+                if client.running():
+                    if not getattr(options,"no_browser",False):
+                        webbrowser.open(client.base)
+                    return 0
+                from .app import Application
+                app = Application(client.config,preview_only=getattr(options,"preview_only",False))
+                app.serve(browser=not getattr(options,"no_browser",False),tray=not getattr(options,"no_tray",False))
         elif options.command=="panel":
             client.ensure()
             webbrowser.open(client.base)

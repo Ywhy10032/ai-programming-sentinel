@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import re
 import sys
 import threading
+import uuid
 from pathlib import Path
 
 
@@ -28,6 +30,10 @@ DEFAULTS = {
 }
 
 
+def valid_token(value):
+    return isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]{32,256}', value) is not None
+
+
 class Config:
     def __init__(self, directory: Path | None = None):
         self.directory = directory or data_directory()
@@ -40,7 +46,7 @@ class Config:
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(raw, dict):
                     self.values.update(self.validate(raw))
-                    if isinstance(raw.get("token"), str) and len(raw["token"]) >= 32:
+                    if valid_token(raw.get("token")):
                         self.values["token"] = raw["token"]
             except (OSError, ValueError):
                 self.path.replace(self.directory / "config.invalid.json")
@@ -87,6 +93,19 @@ class Config:
         with self.lock:
             return {k: v for k, v in self.values.items() if k != "token"}
 
+    def refresh_token(self):
+        # 配置可能被另一个入口或备份恢复更新；只同步有效令牌，不重写文件或改变偏好。
+        with self.lock:
+            try:
+                raw = json.loads(self.path.read_text(encoding='utf-8'))
+            except (OSError, ValueError, UnicodeError):
+                return False
+            if not isinstance(raw, dict) or not valid_token(raw.get('token')):
+                return False
+            changed = raw['token'] != self.values['token']
+            self.values['token'] = raw['token']
+            return changed
+
     def update(self, raw: dict) -> dict:
         values = self.validate(raw)
         with self.lock:
@@ -96,6 +115,10 @@ class Config:
 
     def save(self):
         with self.lock:
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(self.values, ensure_ascii=False, indent=2), encoding="utf-8")
-            temporary.replace(self.path)
+            self.refresh_token()
+            temporary = self.path.with_name('.config-'+uuid.uuid4().hex+'.tmp')
+            try:
+                temporary.write_text(json.dumps(self.values, ensure_ascii=False, indent=2), encoding="utf-8")
+                temporary.replace(self.path)
+            finally:
+                temporary.unlink(missing_ok=True)
